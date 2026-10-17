@@ -1,0 +1,20 @@
+# ntfy nativo; bases de datos en PostgreSQL, adjuntos en volumen exclusivo.
+listen-http: ":8080"
+auth-default-access: "deny-all"
+enable-login: true
+enable-signup: false
+require-login: true
+enable-reservations: false
+# Sin confiar en cabeceras reenviadas hasta configurar la red real del proxy.
+behind-proxy: false
+cache-duration: "24h"
+attachment-cache-dir: "/var/lib/ntfy/attachments"
+attachment-total-size-limit: "1G"
+attachment-file-size-limit: "5M"
+attachment-expiry-duration: "3h"
+visitor-attachment-total-size-limit: "20M"
+visitor-attachment-daily-bandwidth-limit: "100M"
+visitor-request-limit-burst: 60
+visitor-request-limit-replenish: "5s"
+visitor-subscription-limit: 30
+log-level: info

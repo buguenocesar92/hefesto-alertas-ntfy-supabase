@@ -1,0 +1,58 @@
+name: hefesto-alertas
+x-pg: &pg
+  PGHOST: ${DB_HOST:?Configurar DB_HOST}
+  PGPORT: "5432"
+  PGDATABASE: postgres
+  PGUSER: ${DB_USER:-ntfy_app}
+  PGPASSWORD: ${DB_PASSWORD:?Configurar clave}
+  PGSSLMODE: verify-full
+  PGSSLROOTCERT: /certs/ca.crt
+  PGCONNECT_TIMEOUT: "15"
+services:
+  preflight:
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      <<: *pg
+      SUPABASE_DEDICATED_CONFIRMED: ${SUPABASE_DEDICATED_CONFIRMED:-false}
+      SUPABASE_DATA_API_DISABLED: ${SUPABASE_DATA_API_DISABLED:-false}
+    volumes: [./certs:/certs:ro, ./ops:/opt/hefesto:ro]
+    entrypoint: [sh, /opt/hefesto/preflight.sh]
+  permissions:
+    image: postgres:17-alpine
+    restart: "no"
+    user: "0"
+    entrypoint: [sh, -ec, 'chown -R 1000:1000 /files; chmod 700 /files']
+    volumes: [files:/files]
+  app:
+    image: binwiederhier/ntfy:v2.30.0@sha256:8563a39da2f5a47360618b2ab9200239c76b37f4145f6d627d9ab4368abd23f0
+    user: "1000:1000"
+    command: [serve, --config, /etc/ntfy/server.yml]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      preflight: {condition: service_completed_successfully}
+      permissions: {condition: service_completed_successfully}
+    environment:
+      NTFY_BASE_URL: ${PUBLIC_URL:?Configurar URL}
+      NTFY_DATABASE_URL: postgres://${DB_USER:-ntfy_app}:${DB_PASSWORD}@${DB_HOST}:5432/postgres?sslmode=verify-full&sslrootcert=/certs/ca.crt&connect_timeout=15&pool_max_conns=5&pool_max_idle_conns=2
+      NTFY_WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+      NTFY_WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+      NTFY_WEB_PUSH_EMAIL_ADDRESS: ${WEB_PUSH_EMAIL_ADDRESS:-}
+    expose: ["8080"]
+    volumes: [files:/var/lib/ntfy, ./config.yml:/etc/ntfy/server.yml:ro, ./certs:/certs:ro]
+  dbtools:
+    image: postgres:17-alpine
+    profiles: [tools]
+    environment: *pg
+    volumes: [./certs:/certs:ro, ./ops:/opt/hefesto:ro]
+  filetools:
+    image: postgres:17-alpine
+    profiles: [tools]
+    user: "0"
+    volumes: [files:/files]
+volumes:
+  files:
+    name: ${VOLUME_PREFIX:-hefesto-alertas}-files

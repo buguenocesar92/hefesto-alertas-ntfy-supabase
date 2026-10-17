@@ -1,0 +1,5 @@
+services:
+  app:
+    environment:
+      NTFY_BASE_URL: http://localhost:8102
+    ports: ["127.0.0.1:8102:8080"]
