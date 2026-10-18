@@ -132,17 +132,32 @@ for SVC in "${SERVICES[@]}"; do
   fi
 done
 
-# Contrato punto 2: nombres estables sin forzar
-RNAME=$(printf '%s' "$RENDER" | jq -r '.name // empty')
-[[ -n "$RNAME" ]] && fail "compose: name raíz fijo '$RNAME' (contrato P2)"
+# Contrato punto 2: nombres estables sin forzar.
+# Inspeccionamos el YAML fuente: el contrato prohíbe DECLARAR 'name:'.
+# (Docker pone nombre del directorio por defecto y Coolify usa el del proyecto.)
+if grep -q '^name:' "$COMPOSE"; then
+  fail "compose: 'name:' declarado a nivel raíz (contrato P2)"
+fi
 
-NETNAMES=$(printf '%s' "$RENDER" | jq -r \
-  '[.networks // {} | to_entries[]? | select(.value.name != null) | .key + ":" + .value.name] | join(",")')
-[[ -n "$NETNAMES" ]] && fail "compose: redes con name fijo '$NETNAMES' (contrato P2)"
+# Volúmenes con 'name:' declarado bajo top-level 'volumes:'
+if awk '
+  /^volumes:[[:space:]]*$/ { in_v=1; next }
+  in_v && /^[^ ]/ { in_v=0 }
+  in_v && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ { cur=$0; sub(/^  /,"",cur); sub(/:[[:space:]]*$/,"",cur); has=0 }
+  in_v && /^    name:[[:space:]]+/ && !/^    name:[[:space:]]*$/ { print cur }
+' "$COMPOSE" | grep -q .; then
+  fail "compose: volumen con 'name:' declarado (contrato P2)"
+fi
 
-VOLNAMES=$(printf '%s' "$RENDER" | jq -r \
-  '[.volumes // {} | to_entries[]? | select(.value.name != null) | .key + ":" + .value.name] | join(",")')
-[[ -n "$VOLNAMES" ]] && fail "compose: volúmenes con name fijo '$VOLNAMES' (contrato P2)"
+# Redes con 'name:' declarado bajo top-level 'networks:'
+if awk '
+  /^networks:[[:space:]]*$/ { in_n=1; next }
+  in_n && /^[^ ]/ { in_n=0 }
+  in_n && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ { cur=$0; sub(/^  /,"",cur); sub(/:[[:space:]]*$/,"",cur); has=0 }
+  in_n && /^    name:[[:space:]]+/ && !/^    name:[[:space:]]*$/ { print cur }
+' "$COMPOSE" | grep -q .; then
+  fail "compose: red con 'name:' declarado (contrato P2)"
+fi
 
 # Contrato punto 3: para supabase-pg, DB_NAME= y DB_SSLMODE= parametrizables.
 # Inspeccionamos los valores renderizados de las claves específicas.
