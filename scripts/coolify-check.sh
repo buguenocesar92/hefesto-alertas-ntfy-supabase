@@ -133,30 +133,34 @@ for SVC in "${SERVICES[@]}"; do
 done
 
 # Contrato punto 2: nombres estables sin forzar.
-# Inspeccionamos el YAML fuente: el contrato prohíbe DECLARAR 'name:'.
-# (Docker pone nombre del directorio por defecto y Coolify usa el del proyecto.)
-if grep -q '^name:' "$COMPOSE"; then
-  fail "compose: 'name:' declarado a nivel raíz (contrato P2)"
-fi
-
-# Volúmenes con 'name:' declarado bajo top-level 'volumes:'
-if awk '
-  /^volumes:[[:space:]]*$/ { in_v=1; next }
-  in_v && /^[^ ]/ { in_v=0 }
-  in_v && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ { cur=$0; sub(/^  /,"",cur); sub(/:[[:space:]]*$/,"",cur); has=0 }
-  in_v && /^    name:[[:space:]]+/ && !/^    name:[[:space:]]*$/ { print cur }
-' "$COMPOSE" | grep -q .; then
-  fail "compose: volumen con 'name:' declarado (contrato P2)"
-fi
-
-# Redes con 'name:' declarado bajo top-level 'networks:'
-if awk '
-  /^networks:[[:space:]]*$/ { in_n=1; next }
-  in_n && /^[^ ]/ { in_n=0 }
-  in_n && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ { cur=$0; sub(/^  /,"",cur); sub(/:[[:space:]]*$/,"",cur); has=0 }
-  in_n && /^    name:[[:space:]]+/ && !/^    name:[[:space:]]*$/ { print cur }
-' "$COMPOSE" | grep -q .; then
-  fail "compose: red con 'name:' declarado (contrato P2)"
+# El contrato prohíbe DECLARAR 'name:' en el compose. Docker pone el
+# nombre del directorio como project name por defecto y Coolify usa el
+# del proyecto; no podemos distinguirlos del render JSON, así que
+# inspeccionamos el YAML fuente con un parser real (PyYAML).
+P2_RESULT=$(python3 - "$COMPOSE" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    doc = yaml.safe_load(f) or {}
+errs = []
+if isinstance(doc, dict) and 'name' in doc:
+    errs.append("'name:' declarado a nivel raíz")
+volumes = doc.get('volumes') or {}
+if isinstance(volumes, dict):
+    for k, v in volumes.items():
+        if isinstance(v, dict) and 'name' in v:
+            errs.append(f"volumen '{k}' declara 'name:'")
+networks = doc.get('networks') or {}
+if isinstance(networks, dict):
+    for k, v in networks.items():
+        if isinstance(v, dict) and 'name' in v:
+            errs.append(f"red '{k}' declara 'name:'")
+print("\n".join(errs))
+PY
+)
+if [[ -n "$P2_RESULT" ]]; then
+  while IFS= read -r line; do
+    fail "compose: $line (contrato P2)"
+  done <<<"$P2_RESULT"
 fi
 
 # Contrato punto 3: para supabase-pg, DB_NAME= y DB_SSLMODE= parametrizables.
