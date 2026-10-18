@@ -29,3 +29,34 @@ No están configurados SMTP, SMS, Firebase, relay iOS, servicios de pago ni cone
 `python3 scripts/backup.py` pausa app, copia public.dump, volumen de adjuntos, .env, compose.yaml y config.yml, genera hashes y reinicia si estaba funcionando. Ejecutar solo sobre despliegue base, fuera de bootstrap. Los mensajes publicados durante la pausa pueden fallar: acordar reintentos en cada emisor. Cifrar respaldo, copiar fuera del VPS y definir retención. Restaurar siguiendo docs/RESTORE.md.
 
 Estado: validación estática del kit y pruebas locales del publicador sin envíos. No se ejecutó Docker, migraciones, push ni restauración en infraestructura real.
+
+## Despliegue en Coolify (MVP Hefesto)
+
+Coolify importa `compose.yaml` desde la rama `coolify` con build pack Docker
+Compose. El contrato exige que el compose no fuerce nombres y que la BD y el
+modo SSL de Supabase sean parametrizables. Para verificarlo antes de desplegar:
+
+```
+bash scripts/coolify-check.sh
+```
+
+Variables nuevas respecto al uso local sin Coolify:
+
+| Variable | Defecto | Propósito |
+|---|---|---|
+| `DB_NAME` | `postgres` | Nombre de la base dentro del Postgres compartido. Coolify asigna una BD por app con prefijo `mvp_<slug>`; usar ese valor. |
+| `DB_SSLMODE` | `verify-full` | Modo SSL de Postgres. Para redes internas donde no se disponga de la CA de Supabase, usar `disable` (o cualquier valor distinto de `verify-full`) y dejar la CA vacía. |
+| `PGSSLROOTCERT` | `/certs/ca.crt` | Ruta a la CA. Vacía (`PGSSLROOTCERT=`) cuando `DB_SSLMODE != verify-full` para no exigir el archivo. |
+| `DB_ALLOW_INTERNAL_HOST` | `false` | Aceptar hosts que no sean `*.supabase.co` (BD propia). También se acepta automáticamente cuando `DB_SSLMODE=disable`. |
+
+Notas operativas:
+
+- Coolify pone el nombre de proyecto, la red y el volumen; el compose no
+  declara `name:`. Si Coolify fija `VOLUME_PREFIX`, el operador lo inyecta
+  desde la configuración de Coolify, no desde el compose.
+- El servicio `app` expone 8080 internamente; Coolify/Traefik enrutan el
+  dominio HTTPS. No añadir `ports:` al compose.
+- `config.yml` mantiene `behind-proxy: false` por compatibilidad con el
+  uso local sin proxy. Al desplegar detrás de Traefik, revisar y poner
+  `behind-proxy: true` con `proxy-trusted-hosts` adecuado para que el
+  rate limit aplique por IP real y no por la IP de Traefik.
