@@ -13,7 +13,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="$REPO_ROOT/compose.yaml"
 TMP_ENV="$(mktemp)"
-trap 'rm -f "$TMP_ENV"' EXIT
+TMP_ENV_DEFAULT="$(mktemp)"
+trap 'rm -f "$TMP_ENV" "$TMP_ENV_DEFAULT"' EXIT
 
 if [[ ! -f "$COMPOSE" ]]; then
   echo "compose.yaml no existe en $REPO_ROOT" >&2
@@ -180,5 +181,57 @@ fi
 # Además exigimos que el compose fuente USE las variables (no valor hardcodeado)
 grep -q '\${DB_NAME' "$COMPOSE" || fail "compose: no usa \${DB_NAME} (BD no parametrizable)"
 grep -q '\${DB_SSLMODE' "$COMPOSE" || fail "compose: no usa \${DB_SSLMODE} (sslmode no parametrizable)"
+
+# (a) El DSN de la app lleva /mvp_prueba? y sslmode=disable con el .env de prueba.
+APP_DSN=$(printf '%s' "$RENDER" | jq -r '.services.app.environment.NTFY_DATABASE_URL // empty')
+if [[ "$APP_DSN" != *"/mvp_prueba?"* ]]; then
+  fail "app: NTFY_DATABASE_URL no contiene '/mvp_prueba?' (BD no llega al DSN)"
+fi
+if [[ "$APP_DSN" != *"sslmode=disable"* ]]; then
+  fail "app: NTFY_DATABASE_URL no contiene 'sslmode=disable' (sslmode no llega al DSN)"
+fi
+
+# (b) El servicio preflight recibe PGSSLMODE=disable (es la variable que
+# debe leer preflight.sh; anclar este contrato evita regresiones).
+PRE_SSL=$(printf '%s' "$RENDER" | jq -r '.services.preflight.environment.PGSSLMODE // empty')
+if [[ "$PRE_SSL" != "disable" ]]; then
+  fail "preflight: PGSSLMODE es '$PRE_SSL', esperaba 'disable' (preflight.sh debe leer PGSSLMODE)"
+fi
+
+# (c) Segundo render SIN DB_SSLMODE, DB_NAME ni PGSSLROOTCERT en el .env.
+# Garantiza que el uso original (sslmode=verify-full, CA por defecto, BD
+# postgres) sigue intacto y no se rompió al parametrizar.
+: > "$TMP_ENV_DEFAULT"
+for V in "${VARS[@]}"; do
+  case "$V" in
+    PUBLIC_URL|DB_HOST)
+      echo "$V=https://ejemplo.invalid" >> "$TMP_ENV_DEFAULT"
+      ;;
+    DB_SSLMODE|DB_NAME|PGSSLROOTCERT)
+      # Sin definir: el render debe respetar los defaults del compose.
+      ;;
+    *)
+      echo "$V=x123ficticio" >> "$TMP_ENV_DEFAULT"
+      ;;
+  esac
+done
+
+if RENDER_DEFAULT=$(docker compose --project-directory "$REPO_ROOT" \
+  -f "$COMPOSE" --env-file "$TMP_ENV_DEFAULT" config --format json 2>/dev/null); then
+  APP_DSN_DEF=$(printf '%s' "$RENDER_DEFAULT" | jq -r '.services.app.environment.NTFY_DATABASE_URL // empty')
+  EXPECTED="/postgres?sslmode=verify-full&sslrootcert=/certs/ca.crt"
+  if [[ "$APP_DSN_DEF" != *"$EXPECTED"* ]]; then
+    fail "app: NTFY_DATABASE_URL (defaults) no contiene '$EXPECTED' (uso original roto): '$APP_DSN_DEF'"
+  fi
+else
+  echo "ERROR: docker compose config (defaults) no pudo renderizar" >&2
+  EXIT=2
+fi
+
+# (d) El servicio app tiene healthcheck definido (contrato punto 6).
+APP_HC=$(printf '%s' "$RENDER" | jq -r '.services.app.healthcheck.test // empty')
+if [[ -z "$APP_HC" ]]; then
+  fail "app: healthcheck.test ausente (contrato P6)"
+fi
 
 exit "$EXIT"
