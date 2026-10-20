@@ -1,12 +1,11 @@
-name: hefesto-alertas
 x-pg: &pg
   PGHOST: ${DB_HOST:?Configurar DB_HOST}
   PGPORT: "5432"
-  PGDATABASE: postgres
+  PGDATABASE: ${DB_NAME:-postgres}
   PGUSER: ${DB_USER:-ntfy_app}
   PGPASSWORD: ${DB_PASSWORD:?Configurar clave}
-  PGSSLMODE: verify-full
-  PGSSLROOTCERT: /certs/ca.crt
+  PGSSLMODE: ${DB_SSLMODE:-verify-full}
+  PGSSLROOTCERT: ${PGSSLROOTCERT-/certs/ca.crt}
   PGCONNECT_TIMEOUT: "15"
 services:
   preflight:
@@ -37,11 +36,19 @@ services:
       permissions: {condition: service_completed_successfully}
     environment:
       NTFY_BASE_URL: ${PUBLIC_URL:?Configurar URL}
-      NTFY_DATABASE_URL: postgres://${DB_USER:-ntfy_app}:${DB_PASSWORD}@${DB_HOST}:5432/postgres?sslmode=verify-full&sslrootcert=/certs/ca.crt&connect_timeout=15&pool_max_conns=5&pool_max_idle_conns=2
+      NTFY_DATABASE_URL: postgres://${DB_USER:-ntfy_app}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME:-postgres}?sslmode=${DB_SSLMODE:-verify-full}&sslrootcert=${PGSSLROOTCERT-/certs/ca.crt}&connect_timeout=15&pool_max_conns=5&pool_max_idle_conns=2
       NTFY_WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
       NTFY_WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
       NTFY_WEB_PUSH_EMAIL_ADDRESS: ${WEB_PUSH_EMAIL_ADDRESS:-}
+      NTFY_BEHIND_PROXY: ${NTFY_BEHIND_PROXY:-false}
+      NTFY_PROXY_TRUSTED_HOSTS: ${NTFY_PROXY_TRUSTED_HOSTS:-}
     expose: ["8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:8080/v1/health | grep -q '\"healthy\":true' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     volumes: [files:/var/lib/ntfy, ./config.yml:/etc/ntfy/server.yml:ro, ./certs:/certs:ro]
   dbtools:
     image: postgres:17-alpine
@@ -55,4 +62,3 @@ services:
     volumes: [files:/files]
 volumes:
   files:
-    name: ${VOLUME_PREFIX:-hefesto-alertas}-files
