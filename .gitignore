@@ -2,4 +2,6 @@
 certs/*.crt
 backups/
 __pycache__/
-*.token
+*.tokensecrets/*.env
+secrets/*.age
+*.tar.gz

@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Suite bats
+        run: bats tests/
+      - name: Shellcheck
+        run: shellcheck -S warning scripts/*.sh ops/*.sh tests/helper.bash
+      - name: Compilacion de los scripts Python
+        run: python3 -m py_compile scripts/*.py
+      - name: Comprobacion del compose
+        run: docker compose -f compose.yaml config --quiet
+      - name: Contrato Coolify
+        run: bash scripts/coolify-check.sh
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks sobre el repositorio y su historial
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false

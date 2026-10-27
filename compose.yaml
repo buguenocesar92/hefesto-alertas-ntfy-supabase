@@ -1,6 +1,6 @@
 x-pg: &pg
   PGHOST: ${DB_HOST:?Configurar DB_HOST}
-  PGPORT: "5432"
+  PGPORT: "${DB_PORT:-5432}"
   PGDATABASE: ${DB_NAME:-postgres}
   PGUSER: ${DB_USER:-ntfy_app}
   PGPASSWORD: ${DB_PASSWORD:?Configurar clave}
@@ -9,8 +9,9 @@ x-pg: &pg
   PGCONNECT_TIMEOUT: "15"
 services:
   preflight:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     restart: "no"
+    networks: [alertas, egreso]
     environment:
       <<: *pg
       SUPABASE_DEDICATED_CONFIRMED: ${SUPABASE_DEDICATED_CONFIRMED:-false}
@@ -18,10 +19,10 @@ services:
     volumes: [./certs:/certs:ro, ./ops:/opt/hefesto:ro]
     entrypoint: [sh, /opt/hefesto/preflight.sh]
   permissions:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     restart: "no"
     user: "0"
-    entrypoint: [sh, -ec, 'chown -R 1000:1000 /files; chmod 700 /files']
+    networks: [alertas]
     volumes: [files:/files]
   app:
     image: binwiederhier/ntfy:v2.30.0@sha256:8563a39da2f5a47360618b2ab9200239c76b37f4145f6d627d9ab4368abd23f0
@@ -34,9 +35,10 @@ services:
     depends_on:
       preflight: {condition: service_completed_successfully}
       permissions: {condition: service_completed_successfully}
+    networks: [alertas, egreso]
     environment:
       NTFY_BASE_URL: ${PUBLIC_URL:?Configurar URL}
-      NTFY_DATABASE_URL: postgres://${DB_USER:-ntfy_app}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME:-postgres}?sslmode=${DB_SSLMODE:-verify-full}&sslrootcert=${PGSSLROOTCERT-/certs/ca.crt}&connect_timeout=15&pool_max_conns=5&pool_max_idle_conns=2
+      NTFY_DATABASE_URL: postgres://${DB_USER:-ntfy_app}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT:-5432}/${DB_NAME:-postgres}?sslmode=${DB_SSLMODE:-verify-full}&sslrootcert=${PGSSLROOTCERT-/certs/ca.crt}&connect_timeout=15&pool_max_conns=5&pool_max_idle_conns=2
       NTFY_WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
       NTFY_WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
       NTFY_WEB_PUSH_EMAIL_ADDRESS: ${WEB_PUSH_EMAIL_ADDRESS:-}
@@ -51,14 +53,19 @@ services:
       start_period: 20s
     volumes: [files:/var/lib/ntfy, ./config.yml:/etc/ntfy/server.yml:ro, ./certs:/certs:ro]
   dbtools:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     profiles: [tools]
+    networks: [alertas, egreso]
     environment: *pg
     volumes: [./certs:/certs:ro, ./ops:/opt/hefesto:ro]
   filetools:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     profiles: [tools]
     user: "0"
+    networks: [alertas]
     volumes: [files:/files]
+networks:
+  alertas: {}
+  egreso: {}
 volumes:
-  files:
+  files: {}
